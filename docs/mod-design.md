@@ -16,7 +16,7 @@ The grader can only judge that after the first prompt has resolved. By then Clau
 - Show the result in a side panel beside the chat.
 - Jev sees the prompt, the names and descriptions of what the first turn used (skills, tools and connectors, memory), and Claude's stated plan. It doesn't see fetched content, such as a work item's text or file contents.
 - Jev is called directly as a classifier: `~typesafe/jev-latest` on OpenRouter's `/api/alpha/decisions` endpoint.
-- The rubric comes from Anthropic's prompting docs, general and per model, as in the current `scripts/rubric.py`.
+- The rubric comes from Anthropic's prompting docs, general and per model, carried over from the earlier plugin's Python rubric (now `hooks/rubric-checks.ts`).
 - No Claude tokens are spent on grading.
 - Build it as a mod (a TypeScript hooks module), replacing the Python hooks.
 
@@ -78,7 +78,7 @@ The panel has three states:
 
 Plugin options, as now:
 
-- `openrouter_api_key`, sensitive. The mod passes it to `$.http.fetch` as an auth handle, so Claude Code adds it to the request and the mod's code never holds the key. To confirm: exactly how a sensitive `userConfig` value becomes a handle.
+- `openrouter_api_key`, sensitive. Claude Code stores it in the system's credential store and hands it to the mod as a plugin option; the mod puts it in the request's `Authorization` header and never logs it. If the option is empty, the mod reads `OPENROUTER_API_KEY` from the environment.
 - `mode`: `live` shows the panel, `log` grades and logs without opening the panel, `off` does nothing.
 
 ### Log
@@ -99,13 +99,16 @@ More leaves the machine than today. For each graded session OpenRouter and TypeS
 
 Unchanged in kind: one Jev request per session, no Claude tokens. The request is larger. Jev charges about $0.04 per million input tokens, so a request of a few thousand tokens still costs well under a tenth of a cent. Requests over about 32 KB of text run in Jev's slower, less accurate long-context mode, so `used` and `plan` need a size cap. **Proposal:** 8 KB for `plan` and 8 KB for `used`, cut from the end.
 
-## Open questions
+## Questions settled while building
 
-- Whether mods load for every user by default or need turning on per machine. This decides how the plugin is shared.
+- `/prompt-grader` reopens the panel after it's closed.
+- Only the latest Claude Code is supported; the hooks plugin was not kept as a fallback.
+- Calibration: twenty recent first turns were replayed and compared by hand (see the calibration notes below).
+
+Still open:
+
+- Whether mods load for every user by default or need turning on per machine.
 - How the panel looks below 110 columns, where it no longer docks beside the chat.
-- Whether a slash command for the panel is needed (for example `/prompt-grader` to reopen it) when it's closed.
-- Which Claude Code version mods need, and what users on older versions get. **Proposal:** keep the current hooks plugin available as the fallback for them.
-- How to test calibration: the log has first prompts, and transcripts have the first turns. **Proposal:** replay twenty recent first turns through the new request and compare grades by hand before releasing.
 
 ## Verification plan
 

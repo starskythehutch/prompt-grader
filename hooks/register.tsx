@@ -13,12 +13,14 @@ const PANE = 'prompt-grader'
 const TITLE = 'Prompt grader'
 const TIMEOUT_MS = 5000
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
-const LOG_DIR = '.claude/plugins/data/prompt-grader-prompt-grader'
+const LOG_DIR = 'plugins/data/prompt-grader-prompt-grader'
 const LOG_MAX = 3 * 1024 * 1024
 
 const INITIAL: Grading = { phase: 'waiting', isLive: true }
 // Change the tag when Grading's fields change: it declines what an older version stored.
 const grading = atom({ plugin: 'prompt-grader', key: 'grading' } as const, INITIAL, { shape: 'grading-1' })
+
+const NO_KEY = 'no OpenRouter API key'
 
 const LABEL = { good: 'Good', could_be_better: 'Could be better', poor: 'Poor' } as const
 
@@ -26,13 +28,17 @@ async function apiKey($: EngineInterface, optionKey: string): Promise<string> {
   return optionKey || ((await $.env.get('OPENROUTER_API_KEY')) ?? '').trim()
 }
 
-async function home($: EngineInterface): Promise<string | undefined> {
-  return (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+/** Claude Code's config folder: CLAUDE_CONFIG_DIR, or .claude in the home folder. */
+async function configDir($: EngineInterface): Promise<string | undefined> {
+  const set = (await $.env.get('CLAUDE_CONFIG_DIR'))?.trim()
+  if (set) return set
+  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+  return home === undefined ? undefined : `${home}/.claude`
 }
 
 async function log($: EngineInterface, entry: Record<string, unknown>): Promise<void> {
   try {
-    const dir = await home($)
+    const dir = await configDir($)
     if (!dir) return
     const path = `${dir}/${LOG_DIR}/grades.jsonl`
     let text = ''
@@ -49,9 +55,13 @@ async function log($: EngineInterface, entry: Record<string, unknown>): Promise<
   }
 }
 
-async function grade($: EngineInterface, trigger: 'edit' | 'end', optionKey: string): Promise<void> {
+async function grade($: EngineInterface, trigger: 'edit' | 'end', optionKey: string, claimed: Set<string>): Promise<void> {
   const state = await read($, grading)
   if (state.phase !== 'watching' || !state.prompt) return
+  // Two edits in one message both read 'watching'; only the first grades.
+  const claim = state.turnId ?? ''
+  if (claimed.has(claim)) return
+  claimed.add(claim)
   await update($, grading, s => ({ ...s, phase: 'grading' as const, trigger }))
   const started = await $.clock.now()
   const base = {
@@ -63,11 +73,11 @@ async function grade($: EngineInterface, trigger: 'edit' | 'end', optionKey: str
   }
   try {
     const key = await apiKey($, optionKey)
-    if (!key) throw new Error('no OpenRouter API key')
+    if (!key) throw new Error(NO_KEY)
     const messages = (await $.session.messages()) as unknown as Message[]
     const turn = firstTurn(messages, state.prompt)
     const [tools, commands] = await Promise.all([$.tool.list(), $.command.list()])
-    const { used } = await usedBy(turn, tools, commands, async path => {
+    const used = await usedBy(turn, tools, commands, async path => {
       try {
         return (await $.fs.read(path)).slice(0, 4096)
       } catch {
@@ -117,7 +127,7 @@ async function grade($: EngineInterface, trigger: 'edit' | 'end', optionKey: str
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    await update($, grading, s => ({ ...s, phase: message.includes('API key') ? ('nokey' as const) : ('error' as const), error: message }))
+    await update($, grading, s => ({ ...s, phase: message === NO_KEY ? ('nokey' as const) : ('error' as const), error: message }))
     await log($, { ...base, grade: 'error', error: message, seconds: ((await $.clock.now()) - started) / 1000 })
   }
 }
@@ -140,9 +150,10 @@ async function openPane($: EngineInterface): Promise<void> {
   if (s.isLive && s.phase !== 'skipped') await $.ui.open({ id: PANE, title: TITLE })
 }
 
-async function start($: EngineInterface, isInteractive: boolean, mode: string, optionKey: string): Promise<void> {
+async function start($: EngineInterface, isInteractive: boolean, mode: string, optionKey: string, isCleared = false): Promise<void> {
   const isLive = mode !== 'log' && (await isAttended($, isInteractive))
-  const resumed = (await $.session.messages()).length > 0
+  // After /clear the old messages can still be there; the session is new all the same.
+  const resumed = !isCleared && (await $.session.messages()).length > 0
   const hasKey = (await apiKey($, optionKey)) !== ''
   const next: Grading = resumed
     ? { phase: 'skipped' as const, isLive, reason: 'Resumed session: only a new session is graded.' }
@@ -155,6 +166,7 @@ export const register: Register = (on, options) => {
   const mode = String(options.mode ?? 'live').toLowerCase()
   if (mode === 'off') return
   const optionKey = String(options.openrouter_api_key ?? '').trim()
+  const claimed = new Set<string>()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'prompt-grader', description: 'Show how this session opened, graded by Jev' })
@@ -165,7 +177,7 @@ export const register: Register = (on, options) => {
   // /clear ends the session without a new session.start: start over here.
   on('session.end', async ($, e, next) => {
     const ran = await next(e)
-    if (e.reason === 'clear') await start($, (await read($, grading)).isLive, mode, optionKey)
+    if (e.reason === 'clear') await start($, (await read($, grading)).isLive, mode, optionKey, true)
     return ran
   })
 
@@ -214,7 +226,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined && EDIT_TOOLS.has(String(e.tool))) {
       const state = await read($, grading)
       // Grade beside the edit; the edit doesn't wait.
-      if (state.phase === 'watching') void grade($, 'edit', optionKey)
+      if (state.phase === 'watching') void grade($, 'edit', optionKey, claimed)
     }
     return next(e)
   })
@@ -223,7 +235,7 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     if (e.agentId === undefined) {
       const state = await read($, grading)
-      if (state.phase === 'watching' && state.turnId === e.turnId) void grade($, 'end', optionKey)
+      if (state.phase === 'watching' && state.turnId === e.turnId) void grade($, 'end', optionKey, claimed)
     }
     return ran
   })

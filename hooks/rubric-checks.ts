@@ -197,7 +197,6 @@ export const MODEL_SPECIFIC: readonly Check[] = [
     "efforts": [
       "low",
       "medium",
-      undefined,
       undefined
     ],
     "source": "S55 and H55: at low and medium effort the model can stop after one part",

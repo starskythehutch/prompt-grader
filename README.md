@@ -48,8 +48,6 @@ claude plugin install prompt-grader --marketplace starskythehutch/prompt-grader
 
 In the desktop app, where `/plugin` doesn't run: click + next to the prompt box, then Plugins, Add marketplace with `starskythehutch/prompt-grader`, then Add plugin.
 
-The repository is private: installing needs read access to it on GitHub and a git credential for github.com on your machine (an SSH key, or `gh auth login` then `gh auth setup-git`). The install doesn't prompt for one.
-
 To work on it from a clone instead, add the clone as a marketplace and install from there; Claude Code then reads the mod straight from that folder:
 
 ```bash
@@ -86,7 +84,7 @@ Sessions with nobody at the keyboard (`claude -p`, the Agent SDK) are always gra
 
 ## Log
 
-Every graded session adds a line to `~/.claude/plugins/data/prompt-grader-prompt-grader/grades.jsonl`: the time, mode, what triggered grading (`edit` or `end`), the grade, the failed checks, the notes, what was used, whether there was a plan, the prompt, the Claude model and effort, the Jev version, the cost and how long it took. Errors and `//raw` skips are logged too. The key is never logged.
+Every graded session adds a line to `~/.claude/plugins/data/prompt-grader-prompt-grader/grades.jsonl` (under `CLAUDE_CONFIG_DIR` instead of `~/.claude` if you set it): the time, mode, what triggered grading (`edit` or `end`), the grade, the failed checks, the notes, what was used, whether there was a plan, the prompt, the Claude model and effort, the Jev version, the cost and how long it took. Errors and `//raw` skips are logged too. The key is never logged.
 
 ```bash
 tail -n 20 ~/.claude/plugins/data/prompt-grader-prompt-grader/grades.jsonl | jq -c '{ts, grade, trigger, failed, prompt}'
@@ -116,3 +114,7 @@ claude plugin test .
 ```
 
 The tests stub the engine and Jev; [docs/mod-design.md](docs/mod-design.md) has the design.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

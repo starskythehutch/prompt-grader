@@ -19,7 +19,7 @@ const PANE = {
 
 type Fetch = { url: string; init?: { body?: string; headers?: Record<string, string> } }
 
-function engine(on: any, opts: { grade?: string; failing?: string[]; messages?: unknown[]; key?: string; entrypoint?: string } = {}) {
+function engine(on: any, opts: { configDir?: string; grade?: string; failing?: string[]; messages?: unknown[]; key?: string; entrypoint?: string; httpError?: { status: number; text: string } } = {}) {
   const fetches: Fetch[] = []
   const writes: { path: string; text: string }[] = []
   const opened: string[] = []
@@ -37,6 +37,7 @@ function engine(on: any, opts: { grade?: string; failing?: string[]; messages?: 
     value:
       e.name === 'OPENROUTER_API_KEY' ? opts.key ?? 'test-key'
       : e.name === 'HOME' ? '/home/t'
+      : e.name === 'CLAUDE_CONFIG_DIR' ? opts.configDir
       : e.name === 'CLAUDE_CODE_ENTRYPOINT' ? opts.entrypoint
       : undefined,
   }))
@@ -49,6 +50,7 @@ function engine(on: any, opts: { grade?: string; failing?: string[]; messages?: 
   })
   on('http.fetch', (_: unknown, e: Fetch) => {
     fetches.push(e)
+    if (opts.httpError) return { value: { ...opts.httpError, ok: false, headers: {} } }
     const body = JSON.parse(e.init?.body ?? '{}')
     const answers: Record<string, unknown> = { grade: { type: 'choice', choice: opts.grade ?? 'good' } }
     for (const [id, q] of Object.entries(body.questions ?? {}) as [string, any][]) {
@@ -62,6 +64,7 @@ function engine(on: any, opts: { grade?: string; failing?: string[]; messages?: 
   on('turn.start', (_: unknown, e: unknown) => e)
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('tool.call', () => ({ result: {} }))
+  on('session.end', (_: unknown, e: { sessionId?: string }) => ({ sessionId: e.sessionId ?? 's-1' }))
   return { fetches, writes, opened, setMessages: (m: unknown[]) => (messages = m) }
 }
 
@@ -237,4 +240,45 @@ test('the first turn records the model and effort it ran with', async ($, on) =>
   expect(req.state.claude_model).toBe('claude-haiku-5-5')
   expect(req.state.effort).toBe('low')
   expect(Object.keys(req.questions)).toContain('finish_all_parts')
+})
+
+test('two edits at once send one request', async ($, on) => {
+  const eng = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'fix it', turnId: 'turn-1' })
+  await Promise.all([
+    $.tool.call({ tool: 'Edit', file_path: '/r/a.ts', old_string: 'a', new_string: 'b' }),
+    $.tool.call({ tool: 'Edit', file_path: '/r/b.ts', old_string: 'a', new_string: 'b' }),
+  ])
+  await settle()
+  expect(eng.fetches.length).toBe(1)
+})
+
+test('a rejected key is an error, not a missing key', async ($, on) => {
+  engine(on, { httpError: { status: 401, text: '{"error":{"message":"Invalid API key"}}' } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'fix it', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'Edit', file_path: '/r/a.ts', old_string: 'a', new_string: 'b' })
+  await settle()
+  const text = await panelText($)
+  expect(text).toContain("Couldn't grade")
+  expect(text).not.toContain('Needs an OpenRouter API key')
+})
+
+test('/clear starts a new grading even while the old messages are still there', async ($, on) => {
+  const eng = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'fix it', turnId: 'turn-1' })
+  eng.setMessages([{ role: 'user', text: 'fix it', toolUses: [] }])
+  await $.session.end({ reason: 'clear' })
+  expect(await panelText($)).toContain('Waiting')
+})
+
+test('the log follows CLAUDE_CONFIG_DIR', async ($, on) => {
+  const eng = engine(on, { configDir: '/cfg' })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'fix it', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'Edit', file_path: '/r/a.ts', old_string: 'a', new_string: 'b' })
+  await settle()
+  expect(eng.writes.at(-1)!.path).toBe('/cfg/plugins/data/prompt-grader-prompt-grader/grades.jsonl')
 })

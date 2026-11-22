@@ -69,10 +69,9 @@ export async function usedBy(
   tools: readonly Described[],
   commands: readonly Described[],
   readMemory: (path: string) => Promise<string | undefined>,
-): Promise<{ used: Used[]; memoryPaths: string[] }> {
+): Promise<Used[]> {
   const seen = new Set<string>()
   const used: Used[] = []
-  const memoryPaths: string[] = []
   const add = (u: Used) => {
     const id = `${u.kind}:${u.name}`
     if (seen.has(id)) return
@@ -94,12 +93,11 @@ export async function usedBy(
         add({ kind: 'agent', name: String(input.subagent_type ?? 'subagent') })
       } else if (call.tool === 'Read' && typeof input.file_path === 'string' && isMemoryPath(input.file_path)) {
         const name = input.file_path.replace(/\\/g, '/').split('/').slice(-2).join('/')
-        if (!seen.has(`memory:${name}`)) memoryPaths.push(input.file_path)
         add({ kind: 'memory', name, description: frontmatterDescription((await readMemory(input.file_path)) ?? '') })
       } else {
         add({ kind: 'tool', name: call.tool })
       }
     }
   }
-  return { used, memoryPaths }
+  return used
 }

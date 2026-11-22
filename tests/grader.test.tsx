@@ -140,7 +140,7 @@ describe('context', () => {
     const turn = firstTurn(messages, 'fix workitem 345')
     expect(turn.length).toBe(3)
     expect(planOf(turn)).toBe("I'll look the item up first.\n\nIt says the export fails.")
-    const { used } = await usedBy(
+    const used = await usedBy(
       turn,
       [{ name: 'mcp__devops__get_work_item', description: 'Gets an Azure DevOps work item' }],
       [{ name: 'debugging', description: 'Systematic debugging' }],
@@ -170,7 +170,7 @@ describe('context', () => {
       },
     ]
     expect(planOf(turn)).toBe('- Read the work item\n- Fix the export\n\n- Run the tests')
-    const { used } = await usedBy(turn, [], [], async () => undefined)
+    const used = await usedBy(turn, [], [], async () => undefined)
     expect(used.map(u => u.name)).toEqual(['mcp__devops__get_work_item'])
   })
 
