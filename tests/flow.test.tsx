@@ -19,7 +19,7 @@ const PANE = {
 
 type Fetch = { url: string; init?: { body?: string; headers?: Record<string, string> } }
 
-function engine(on: any, opts: { configDir?: string; grade?: string; failing?: string[]; messages?: unknown[]; key?: string; entrypoint?: string; httpError?: { status: number; text: string } } = {}) {
+function engine(on: any, opts: { configDir?: string; grade?: string; failing?: string[]; messages?: unknown[]; key?: string; entrypoint?: string; httpError?: { status: number; text: string }; hang?: boolean } = {}) {
   const fetches: Fetch[] = []
   const writes: { path: string; text: string }[] = []
   const opened: string[] = []
@@ -50,6 +50,7 @@ function engine(on: any, opts: { configDir?: string; grade?: string; failing?: s
   })
   on('http.fetch', (_: unknown, e: Fetch) => {
     fetches.push(e)
+    if (opts.hang) return new Promise(() => {})
     if (opts.httpError) return { value: { ...opts.httpError, ok: false, headers: {} } }
     const body = JSON.parse(e.init?.body ?? '{}')
     const answers: Record<string, unknown> = { grade: { type: 'choice', choice: opts.grade ?? 'good' } }
@@ -281,4 +282,14 @@ test('the log follows CLAUDE_CONFIG_DIR', async ($, on) => {
   await $.tool.call({ tool: 'Edit', file_path: '/r/a.ts', old_string: 'a', new_string: 'b' })
   await settle()
   expect(eng.writes.at(-1)!.path).toBe('/cfg/plugins/data/prompt-grader-prompt-grader/grades.jsonl')
+})
+
+test('the edit runs without waiting for Jev', async ($, on) => {
+  const eng = engine(on, { hang: true })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'fix it', turnId: 'turn-1' })
+  await $.tool.call({ tool: 'Edit', file_path: '/r/a.ts', old_string: 'a', new_string: 'b' })
+  await settle()
+  expect(eng.fetches.length).toBe(1)
+  expect(await panelText($)).toContain('Grading')
 })
