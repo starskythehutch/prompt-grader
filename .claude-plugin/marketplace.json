@@ -1,0 +1,11 @@
+{
+  "name": "prompt-grader",
+  "owner": { "name": "David Hutcheson" },
+  "plugins": [
+    {
+      "name": "prompt-grader",
+      "source": "./",
+      "description": "Grades the first prompt of each session with Jev on OpenRouter"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "prompt-grader",
+  "version": "0.4.0",
+  "description": "Grades how each Claude Code session opened, once the first prompt has resolved, and shows suggestions in a side panel. Uses Jev on OpenRouter and Anthropic's general and per-model prompting guidance; spends no Claude tokens.",
+  "author": {
+    "name": "David Hutcheson"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "openrouter_api_key": {
+      "type": "string",
+      "title": "OpenRouter API key",
+      "description": "Used to call Jev, the grading model, on OpenRouter. Get one at https://openrouter.ai/keys. Leave empty if OPENROUTER_API_KEY is set in Claude Code's environment.",
+      "sensitive": true
+    },
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "live: grade and show the side panel. log: grade and log only. off: do nothing.",
+      "default": "live"
+    }
+  },
+  "types": "./types/index.d.ts"
+}
